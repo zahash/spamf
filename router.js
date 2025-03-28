@@ -1,15 +1,23 @@
 /**
+ * @typedef {Object} Route
+ * @property {string} file - The HTML file to load for this route.
+ * @property {string} [title] - (Optional) The title to set when this route is loaded.
+ */
+
+/**
  * Initializes a simple client-side router using the hash-based navigation approach.
  * This router listens for link clicks and hash changes to dynamically update content 
  * without a full page reload.
  *
- * @param {Object} routes - A mapping of URL paths to corresponding HTML file paths.
- * Example:
- * {
- *   404: "404.html",
- *   "/": "home.html",
- *   "/about": "about.html"
- * }
+ * @param {Object.<string, Route>} routes - A mapping of URL paths to route objects.
+ *
+ * @example
+ * initRouter({
+ *   404: { file: "404.html", title: "404 - Page Not Found" },
+ *   "/": { file: "home.html", title: "Home" },
+ *   "/about": { file: "about.html", title: "About" },
+ *   "/lorem": { file: "lorem.html", title: "Lorem" }
+ * });
  */
 export default function initRouter(routes) {
     /**
@@ -37,9 +45,15 @@ export default function initRouter(routes) {
         const path = window.location.hash.slice(1) || "/"; // Remove "#" and default to "/"
         const route = routes[path] || routes[404];
 
-        const response = await fetch(route);
-        const html = await response.text();
-        document.getElementById("main").innerHTML = html;
+        if (route) {
+            const response = await fetch(route.file);
+            const html = await response.text();
+            document.getElementById("root").innerHTML = html;
+            document.title = route.title || "Untitled Page"
+        } else {
+            document.getElementById("root").innerHTML = "<h1>404 - Page Not Found</h1>";
+            document.title = "404 - Page Not Found"
+        }
     }
 
     document.addEventListener("click", route); // Listen for clicks on the entire document
