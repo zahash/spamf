@@ -1,4 +1,4 @@
-import initRouter from '../../hash-router.js';
+import initRouter from '../../router.js';
 import signal from "../../signal.js";
 
 initRouter({
