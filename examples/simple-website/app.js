@@ -2,10 +2,10 @@ import initRouter from '../../router.js';
 import signal from "../../signal.js";
 
 initRouter({
-    404: { file: "404.html", title: "404 - Page Not Found" },
-    "/": { file: "home.html", title: "Home" },
-    "/about": { file: "about.html" },
-    "/lorem": { file: "lorem.html", title: "Lorem" }
+    404: { template: "404.html", title: "404 - Page Not Found" },
+    "/": { template: "home.html", title: "Home" },
+    "/about": { template: "about.html" },
+    "/lorem": { template: "lorem.html", title: "Lorem" }
 });
 
 let state = signal({

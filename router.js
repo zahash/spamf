@@ -1,23 +1,22 @@
 /**
  * @typedef {Object} Route
- * @property {string} file - The HTML file to load for this route.
- * @property {string} [title] - (Optional) The title to set when this route is loaded.
+ * @property {string} template - The path to the HTML file for the route.
+ * @property {string} [title] - The title of the page (optional).
+ * @property {string[]} [styles] - List of CSS files to load for the route (optional).
+ * @property {string[]} [scripts] - List of JavaScript files to load for the route (optional).
  */
 
 /**
- * Initializes a simple client-side router using the hash-based navigation approach.
- * This router listens for link clicks and hash changes to dynamically update content 
- * without a full page reload.
+ * Initializes a simple client-side router using hash-based navigation.
+ * Dynamically loads HTML content, styles, and scripts based on the current route.
  *
- * @param {Object.<string, Route>} routes - A mapping of URL paths to route objects.
- *
- * @example
- * initRouter({
- *   404: { file: "404.html", title: "404 - Page Not Found" },
- *   "/": { file: "home.html", title: "Home" },
- *   "/about": { file: "about.html", title: "About" },
- *   "/lorem": { file: "lorem.html", title: "Lorem" }
- * });
+ * @param {Object<string, Route>} routes - A mapping of URL paths to route configurations.
+ * Example:
+ * {
+ *   404: { template: "404.html", title: "Page Not Found" },
+ *   "/": { template: "home.html", title: "Home", styles: ["home.css"], scripts: ["home.js"] },
+ *   "/about": { template: "about.html", title: "About", styles: ["about.css"], scripts: ["about.js"] }
+ * }
  */
 export default function initRouter(routes) {
     /**
@@ -30,7 +29,7 @@ export default function initRouter(routes) {
         const tagName = event.target.tagName;
         const href = event.target.getAttribute("href");
 
-        if (tagName === "A" && href) {
+        if (tagName === "A" && href && href.startsWith("#")) {
             event.preventDefault();
             window.location.hash = href;
             render();
@@ -46,10 +45,36 @@ export default function initRouter(routes) {
         const route = routes[path] || routes[404];
 
         if (route) {
-            const response = await fetch(route.file);
+            const response = await fetch(route.template);
             const html = await response.text();
             document.getElementById("root").innerHTML = html;
-            document.title = route.title || "Untitled Page"
+            document.title = route.title || "Untitled Page";
+
+            // Convert all internal `<a>` links (starting with `/`) to hash-based routes.
+            document.querySelectorAll("a[href]").forEach(anchor => {
+                const href = anchor.getAttribute("href");
+                if (href.startsWith("/")) {
+                    anchor.setAttribute("href", `#${href}`);
+                }
+            });
+
+            document.querySelectorAll("link[data-dynamic-style]").forEach(link => link.remove());
+            (route.styles || []).forEach(css => {
+                const link = document.createElement("link");
+                link.rel = "stylesheet";
+                link.href = css;
+                link.setAttribute("data-dynamic-style", ""); // Mark as dynamically loaded
+                document.head.appendChild(link);
+            });
+
+            document.querySelectorAll("script[data-dynamic-script]").forEach(script => script.remove());
+            (route.scripts || []).forEach(src => {
+                const script = document.createElement("script");
+                script.src = src;
+                script.setAttribute("data-dynamic-script", ""); // Mark as dynamically loaded
+                script.defer = true;
+                document.body.appendChild(script);
+            });
         } else {
             document.getElementById("root").innerHTML = "<h1>404 - Page Not Found</h1>";
             document.title = "404 - Page Not Found"
