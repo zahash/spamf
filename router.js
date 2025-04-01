@@ -71,8 +71,9 @@ export default function initRouter(routes) {
             (route.scripts || []).forEach(src => {
                 const script = document.createElement("script");
                 script.src = src;
-                script.setAttribute("data-dynamic-script", ""); // Mark as dynamically loaded
                 script.defer = true;
+                if (src.endsWith(".mjs")) script.type = "module";
+                script.setAttribute("data-dynamic-script", ""); // Mark as dynamically loaded
                 document.body.appendChild(script);
             });
         } else {
