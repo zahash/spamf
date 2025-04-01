@@ -52,20 +52,33 @@ export default function signal(initialValue) {
 }
 
 /**
- * Merges multiple signals into a single signal, where the value is a list of the individual values.
- * Whenever any signal updates, the merged signal will also update.
+ * Merges multiple signals into a single signal, where the value is an object containing the values
+ * of the individual signals. Whenever any signal updates, the merged signal will also update.
  *
- * @param {...function} signals - The signals to merge.
- * @returns {function([T, U, ...])} A new reactive signal holding a list of the signals' values.
+ * The keys in the returned object will correspond to the signal names (as provided in the input object).
+ *
+ * @param {Object} signals - An object where each property is a signal, and the property name is used
+ *                            as the key in the merged signal's value.
+ * @returns {function} A new reactive signal holding an object with the individual signal's values.
+ *   - The returned signal's value is an object where each key corresponds to the original signal name.
+ *
+ * @example
+ * const state = signal({ foo: 'bar', 1: 2 });
+ * const state2 = state.derive(obj => obj[1] + 1);
+ * const state3 = signal([1, 2, 3]);
+ * const mergedState = merge({ state, state2, "someOtherName": state3 });
  */
-export function merge(...signals) {
-    const mergedSignal = signal(signals.map(s => s()));
+export function merge(signals) {
+    // Initialize mergedSignal with the initial values of the signals
+    const mergedSignal = signal(Object.fromEntries(
+        Object.entries(signals).map(([name, signalFn]) => [name, signalFn()])
+    ));
 
     // Add effects to update the merged signal when any of the individual signals change
-    signals.forEach((s, index) => {
-        s.effect(value => {
-            const currentValues = [...mergedSignal()];
-            currentValues[index] = value;
+    Object.entries(signals).forEach(([name, signalFn]) => {
+        signalFn.effect(value => {
+            const currentValues = { ...mergedSignal() };
+            currentValues[name] = value;
             mergedSignal(currentValues);
         });
     });
