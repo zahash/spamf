@@ -50,3 +50,25 @@ export default function signal(initialValue) {
 
     return _signal;
 }
+
+/**
+ * Merges multiple signals into a single signal, where the value is a list of the individual values.
+ * Whenever any signal updates, the merged signal will also update.
+ *
+ * @param {...function} signals - The signals to merge.
+ * @returns {function([T, U, ...])} A new reactive signal holding a list of the signals' values.
+ */
+export function merge(...signals) {
+    const mergedSignal = signal(signals.map(s => s()));
+
+    // Add effects to update the merged signal when any of the individual signals change
+    signals.forEach((s, index) => {
+        s.effect(value => {
+            const currentValues = [...mergedSignal()];
+            currentValues[index] = value;
+            mergedSignal(currentValues);
+        });
+    });
+
+    return mergedSignal;
+}
