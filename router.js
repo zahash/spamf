@@ -32,8 +32,7 @@ export default function initRouter(routes) {
         const href = anchor.getAttribute("href");
         if (href.startsWith("#")) {
             event.preventDefault();
-            window.location.hash = href;
-            render();
+            window.location.hash = href; // hashchange triggers render
         }
     }
 
@@ -108,4 +107,8 @@ export default function initRouter(routes) {
     document.addEventListener("touchstart", prefetch); // `touchstart` for Mobile support
     window.addEventListener("hashchange", render); // Handle back/forward navigation using hashchange
     render(); // initial render on first page load
+
+    return {
+        redirect: (href) => { window.location.hash = href; }
+    }
 }
