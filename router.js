@@ -41,6 +41,9 @@ export default function initRouter(routes) {
      * Fetches the corresponding HTML file and injects it into the page.
      */
     async function render() {
+        await (window.spamf.onUnmount || (async () => { }))();
+        delete window.spamf.onUnmount; // reset the hook
+
         const path = window.location.hash.slice(1) || "/"; // Remove "#" and default to "/"
         const route = routes[path] || routes[404];
 
@@ -73,15 +76,22 @@ export default function initRouter(routes) {
         });
 
         document.querySelectorAll("script[data-dynamic-script]").forEach(script => script.remove());
-        (route.scripts || []).forEach(src => {
+        await Promise.all((route.scripts || []).map(src => new Promise((resolve) => {
             const script = document.createElement("script");
             script.src = src;
             script.defer = true;
             if (src.endsWith(".mjs")) script.type = "module";
-            script.setAttribute("data-dynamic-script", ""); // Mark as dynamically loaded
+            script.setAttribute("data-dynamic-script", "");
+            script.onload = () => resolve();
+            script.onerror = () => {
+                console.error(`failed to load script: ${src}`);
+                resolve();
+            };
             document.body.appendChild(script);
-        });
+        })));
 
+        await (window.spamf.onMount || (async () => { }))();
+        delete window.spamf.onMount;  // reset the hook
     }
 
     /**
@@ -102,10 +112,13 @@ export default function initRouter(routes) {
         if (route) fetch(route.template);
     }
 
+    window.spamf = {}; // namespace
+
     document.addEventListener("click", route); // Listen for clicks on the entire document
     document.addEventListener("mouseover", prefetch);
     document.addEventListener("touchstart", prefetch); // `touchstart` for Mobile support
     window.addEventListener("hashchange", render); // Handle back/forward navigation using hashchange
+
     render(); // initial render on first page load
 
     return {
