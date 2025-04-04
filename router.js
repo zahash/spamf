@@ -18,7 +18,9 @@
  *   "/about": { template: "about.html", title: "About", styles: ["about.css"], scripts: ["about.js"] }
  * }
  */
-export default function initRouter(routes) {
+export default function initRouter(routes, options = {}) {
+    const { fragments = {} } = options;
+
     /**
      * Handles navigation when a user clicks a link.
      * Updates the URL hash without triggering a full page reload.
@@ -36,6 +38,32 @@ export default function initRouter(routes) {
         }
     }
 
+    async function resolveFragments(element) {
+        const slots = Array.from(element.querySelectorAll("div[data-slot]"));
+        if (!slots.length) return;
+
+        await Promise.all(slots.map(async slot => {
+            const slotName = slot.getAttribute("data-slot");
+            const fragment = fragments[slotName];
+            if (!fragment) return;
+
+            try {
+                const response = await fetch(fragment);
+                if (!response.ok) {
+                    console.error(`failed to load fragment "${fragment}"`);
+                    return;
+                }
+                const html = await response.text();
+                slot.outerHTML = html;
+            } catch (err) {
+                console.error(`failed to fetch fragment "${fragment}"`);
+                console.error(err);
+            }
+        }));
+
+        await resolveFragments(element);
+    }
+
     /**
      * Loads the appropriate content based on the current URL hash.
      * Fetches the corresponding HTML file and injects it into the page.
@@ -47,16 +75,21 @@ export default function initRouter(routes) {
         const path = window.location.hash.slice(1) || "/"; // Remove "#" and default to "/"
         const route = routes[path] || routes[404];
 
+        const root = document.getElementById("root");
+
         if (!route) {
-            document.getElementById("root").innerHTML = "<h1>404 - Page Not Found</h1>";
+            root.innerHTML = "<h1>404 - Page Not Found</h1>";
             document.title = "404 - Page Not Found";
             return;
         }
 
+        document.title = route.title || "Untitled Page";
+
         const response = await fetch(route.template);
         const html = await response.text();
-        document.getElementById("root").innerHTML = html;
-        document.title = route.title || "Untitled Page";
+        root.innerHTML = html;
+
+        await resolveFragments(root); // inject fragments into slots
 
         // Convert all internal `<a>` links (starting with `/`) to hash-based routes.
         document.querySelectorAll("a[href]").forEach(anchor => {
