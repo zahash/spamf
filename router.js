@@ -17,6 +17,9 @@
  *   "/": { template: "home.html", title: "Home", styles: ["home.css"], scripts: ["home.js"] },
  *   "/about": { template: "about.html", title: "About", styles: ["about.css"], scripts: ["about.js"] }
  * }
+ * @param {Object} [options] - Additional options.
+ * @param {Object<string, string>} [options.fragments] - Mapping of fragment names to HTML file paths.
+ * @returns {{ redirect(href: string): void }} Router instance with `redirect()` function.
  */
 export default function initRouter(routes, options = {}) {
     const { fragments = {} } = options;
@@ -38,7 +41,20 @@ export default function initRouter(routes, options = {}) {
         }
     }
 
+    /**
+     * Resolves all nested fragments within an HTML string before rendering.
+     * This prevents layout shifts by fully resolving fragments before insertion.
+     *
+     * @param {string} html - Raw HTML string of the page template.
+     * @returns {Promise<DocumentFragment>} - Fully resolved DOM fragment ready for insertion.
+     */
     async function resolvePage(html) {
+        /**
+         * Recursively resolves <div data-slot="name"> with associated fragments.
+         *
+         * @param {DocumentFragment | HTMLElement} fragment - DOM fragment to scan and mutate.
+         * @returns {Promise<void>}
+         */
         async function resolveNestedFragments(fragment) {
             const slots = Array.from(fragment.querySelectorAll("div[data-slot]"));
             if (!slots.length) return;
@@ -72,7 +88,9 @@ export default function initRouter(routes, options = {}) {
 
     /**
      * Loads the appropriate content based on the current URL hash.
-     * Fetches the corresponding HTML file and injects it into the page.
+     * Fetches the corresponding HTML file, resolves fragments, and injects it into the DOM.
+     *
+     * @returns {Promise<void>}
      */
     async function render() {
         await (window.spamf.onUnmount || (async () => { }))();
