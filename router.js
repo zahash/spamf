@@ -38,30 +38,36 @@ export default function initRouter(routes, options = {}) {
         }
     }
 
-    async function resolveFragments(element) {
-        const slots = Array.from(element.querySelectorAll("div[data-slot]"));
-        if (!slots.length) return;
+    async function resolvePage(html) {
+        async function resolveNestedFragments(fragment) {
+            const slots = Array.from(fragment.querySelectorAll("div[data-slot]"));
+            if (!slots.length) return;
 
-        await Promise.all(slots.map(async slot => {
-            const slotName = slot.getAttribute("data-slot");
-            const fragment = fragments[slotName];
-            if (!fragment) return;
+            await Promise.all(slots.map(async slot => {
+                const slotName = slot.getAttribute("data-slot");
+                const fragmentPath = fragments[slotName];
+                if (!fragmentPath) return;
 
-            try {
-                const response = await fetch(fragment);
-                if (!response.ok) {
-                    console.error(`failed to load fragment "${fragment}"`);
-                    return;
+                try {
+                    const response = await fetch(fragmentPath);
+                    if (!response.ok) {
+                        console.error(`failed to load fragment { ${slotName} : "${fragmentPath}" }`);
+                        return;
+                    }
+                    const html = await response.text();
+                    const innerFragment = document.createRange().createContextualFragment(html);
+                    await resolveNestedFragments(innerFragment);
+                    slot.replaceWith(innerFragment);
+                } catch (err) {
+                    console.error(`failed to fetch fragment { ${slotName} : "${fragmentPath}" }`);
+                    console.error(err);
                 }
-                const html = await response.text();
-                slot.outerHTML = html;
-            } catch (err) {
-                console.error(`failed to fetch fragment "${fragment}"`);
-                console.error(err);
-            }
-        }));
+            }));
+        }
 
-        await resolveFragments(element);
+        const page = document.createRange().createContextualFragment(html);
+        await resolveNestedFragments(page);
+        return page;
     }
 
     /**
@@ -87,9 +93,8 @@ export default function initRouter(routes, options = {}) {
 
         const response = await fetch(route.template);
         const html = await response.text();
-        root.innerHTML = html;
-
-        await resolveFragments(root); // inject fragments into slots
+        const page = await resolvePage(html);
+        root.replaceChildren(page);
 
         // Convert all internal `<a>` links (starting with `/`) to hash-based routes.
         document.querySelectorAll("a[href]").forEach(anchor => {
