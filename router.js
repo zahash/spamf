@@ -1,27 +1,45 @@
 /**
  * @typedef {Object} Route
  * @property {string} template - The path to the HTML file for the route.
- * @property {string} [title] - The title of the page (optional).
- * @property {string[]} [styles] - List of CSS files to load for the route (optional).
- * @property {string[]} [scripts] - List of JavaScript files to load for the route (optional).
  */
 
 /**
- * Initializes a simple client-side router using hash-based navigation.
- * Dynamically loads HTML content, styles, and scripts based on the current route.
+ * Initializes a client-side hash-based router.
+ * Supports route-level lifecycle hooks (onMount/onUnmount), dynamic fragment resolution,
+ * script/style injection, prefetching, and internal link rewriting.
  *
- * @param {Object<string, Route>} routes - A mapping of URL paths to route configurations.
- * Example:
- * {
- *   404: { template: "404.html", title: "Page Not Found" },
- *   "/": { template: "home.html", title: "Home", styles: ["home.css"], scripts: ["home.js"] },
- *   "/about": { template: "about.html", title: "About", styles: ["about.css"], scripts: ["about.js"] }
- * }
- * @param {Object} [options] - Additional options.
- * @param {Object<string, string>} [options.fragments] - Mapping of fragment names to HTML file paths.
- * @returns {{ redirect(href: string): void }} Router instance with `redirect()` function.
- */
-export default function initRouter({ routes = {}, fragments = {} }) {
+ * @param {Object} options
+ * @param {Object} options.routes - A map of path => { template: string }.
+ * @param {Object} options.fragments - A map of fragment name => URL for dynamic HTML fragments.
+ * @returns {Promise<{
+*   redirect: (href: string) => void,
+*   onMount: (fn: () => void | Promise<void>) => void,
+*   onUnmount: (fn: () => void | Promise<void>) => void,
+*   ready: () => void
+* }>}
+*
+* @example
+* import initRouter from "./lib/router.mjs";
+*
+* export const hooks = await initRouter({
+*   routes: {
+*     "/": { template: "home.html" },
+*     "/login": { template: "./pages/login.html" },
+*     "/signup": { template: "./pages/signup.html" }
+*   },
+*   fragments: {
+*     header: "./fragments/header.html",
+*     nav: "./fragments/nav.html"
+*   }
+* });
+*/
+export default async function initRouter({ routes = {}, fragments = {} }) {
+
+    let lifecycle = {
+        onMount: {},
+        onUnmount: {},
+    };
+
     /**
      * Handles navigation when a user clicks a link.
      * Updates the URL hash without triggering a full page reload.
@@ -42,11 +60,17 @@ export default function initRouter({ routes = {}, fragments = {} }) {
     /**
      * Resolves all nested fragments within an HTML string before rendering.
      * This prevents layout shifts by fully resolving fragments before insertion.
+     * Also handles dynamic script and style loading.
      *
      * @param {string} html - Raw HTML string of the page template.
      * @returns {Promise<DocumentFragment>} - Fully resolved DOM fragment ready for insertion.
      */
     async function resolvePage(html) {
+        /**
+         * Updates document.title based on a <meta data-title> tag in the page.
+         *
+         * @param {DocumentFragment} page
+         */
         function resolveTitle(page) {
             document.title = page.querySelector('meta[data-title]')?.getAttribute('data-title') || "Untitled Page";
         }
@@ -83,6 +107,11 @@ export default function initRouter({ routes = {}, fragments = {} }) {
             }));
         }
 
+        /**
+         * Loads <link> and <style> tags from the page and injects them into <head>.
+         *
+         * @param {DocumentFragment} page
+         */
         function resolveStyles(page) {
             document.querySelectorAll("link[data-dynamic-style]").forEach(link => link.remove());
             (page.querySelectorAll('link[rel="stylesheet"][href]') || []).forEach(link => {
@@ -97,26 +126,17 @@ export default function initRouter({ routes = {}, fragments = {} }) {
             });
         }
 
-        async function resolveScripts(page) {
+        /**
+         * Loads <script> tags from the page and injects them into <body>.
+         *
+         * @param {DocumentFragment} page
+         */
+        function resolveScripts(page) {
             document.querySelectorAll("script[data-dynamic-script]").forEach(script => script.remove());
-
-            (page.querySelectorAll("script:not([src])") || []).forEach(script => {
+            (page.querySelectorAll("script") || []).forEach(script => {
                 script.setAttribute("data-dynamic-script", "");
                 document.body.appendChild(script);
             });
-
-            // issue happens because signup-lifecycle.js runs asynchronously
-            // when the script is appended to the DOM, meaning window.spamf.onMount
-            // and window.spamf.onUnmount might not be set when render() tries to execute them.
-            await Promise.all((Array.from(page.querySelectorAll("script[src]")) || []).map(script => new Promise((resolve) => {
-                script.setAttribute("data-dynamic-script", "");
-                script.onload = () => resolve();
-                script.onerror = () => {
-                    console.error(`failed to load script: ${script.src}`);
-                    resolve();
-                };
-                document.body.appendChild(script);
-            })));
         }
 
         const page = document.createRange().createContextualFragment(html);
@@ -124,9 +144,23 @@ export default function initRouter({ routes = {}, fragments = {} }) {
         resolveTitle(page);
         await resolveNestedFragments(page);
         resolveStyles(page);
-        await resolveScripts(page);
+        resolveScripts(page);
 
         return page;
+    }
+
+    /**
+     * Normalizes a hash value to a clean path.
+     *
+     * @param {string} hash
+     * @returns {string | null}
+     */
+    function dehash(hash) {
+        hash = hash || "/";
+        if (hash.startsWith("#")) return hash.slice(1) || "/";
+        if (hash.startsWith("/")) return hash;
+        console.warn("cannot dehash:", hash);
+        return null;
     }
 
     /**
@@ -136,14 +170,10 @@ export default function initRouter({ routes = {}, fragments = {} }) {
      * @returns {Promise<void>}
      */
     async function render() {
-        await (window.spamf.onUnmount || (async () => { }))();
-        delete window.spamf.onUnmount; // reset the hook
-
-        const path = window.location.hash.slice(1) || "/"; // Remove "#" and default to "/"
-        const route = routes[path] || routes[404];
-
         const root = document.getElementById("root");
 
+        const path = dehash(window.location.hash);
+        const route = routes[path] || routes[404];
         if (!route) {
             root.innerHTML = "<h1>404 - Page Not Found</h1>";
             document.title = "404 - Page Not Found";
@@ -162,9 +192,6 @@ export default function initRouter({ routes = {}, fragments = {} }) {
                 anchor.setAttribute("href", `#${href}`);
             }
         });
-
-        await (window.spamf.onMount || (async () => { }))();
-        delete window.spamf.onMount;  // reset the hook
     }
 
     /**
@@ -185,16 +212,27 @@ export default function initRouter({ routes = {}, fragments = {} }) {
         if (route) fetch(route.template);
     }
 
-    window.spamf = {}; // namespace
-
     document.addEventListener("click", route); // Listen for clicks on the entire document
     document.addEventListener("mouseover", prefetch);
     document.addEventListener("touchstart", prefetch); // `touchstart` for Mobile support
-    window.addEventListener("hashchange", render); // Handle back/forward navigation using hashchange
+    window.addEventListener("hashchange", async event => { // Handle back/forward navigation using hashchange
+        const from = dehash(new URL(event.oldURL).hash);
+        const to = dehash(new URL(event.newURL).hash);
 
-    render(); // initial render on first page load
+        await (lifecycle.onUnmount[from] ?? (async () => { }))();
+        await render();
+        await (lifecycle.onMount[to] ?? (async () => { }))();
+    });
+    window.addEventListener("module:ready", async event => {
+        await (lifecycle.onMount[event.detail.route] ?? (async () => { }))();
+    });
+
+    await render(); // initial render on first page load
 
     return {
-        redirect: (href) => { window.location.hash = href; }
+        redirect: (href) => window.location.hash = href,
+        onMount: (fn) => lifecycle.onMount[dehash(window.location.hash)] = fn,
+        onUnmount: (fn) => lifecycle.onUnmount[dehash(window.location.hash)] = fn,
+        ready: () => window.dispatchEvent(new CustomEvent("module:ready", { detail: { route: dehash(window.location.hash) } })),
     }
 }
