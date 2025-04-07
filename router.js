@@ -21,9 +21,7 @@
  * @param {Object<string, string>} [options.fragments] - Mapping of fragment names to HTML file paths.
  * @returns {{ redirect(href: string): void }} Router instance with `redirect()` function.
  */
-export default function initRouter(routes, options = {}) {
-    const { fragments = {} } = options;
-
+export default function initRouter({ routes = {}, fragments = {} }) {
     /**
      * Handles navigation when a user clicks a link.
      * Updates the URL hash without triggering a full page reload.
@@ -49,18 +47,22 @@ export default function initRouter(routes, options = {}) {
      * @returns {Promise<DocumentFragment>} - Fully resolved DOM fragment ready for insertion.
      */
     async function resolvePage(html) {
+        function resolveTitle(page) {
+            document.title = page.querySelector('meta[data-title]')?.getAttribute('data-title') || "Untitled Page";
+        }
+
         /**
-         * Recursively resolves <div data-slot="name"> with associated fragments.
+         * Recursively resolves <div data-fragment="name"> with associated fragments.
          *
-         * @param {DocumentFragment | HTMLElement} fragment - DOM fragment to scan and mutate.
+         * @param {DocumentFragment} fragment - DOM fragment to scan and mutate.
          * @returns {Promise<void>}
          */
         async function resolveNestedFragments(fragment) {
-            const slots = Array.from(fragment.querySelectorAll("div[data-slot]"));
+            const slots = Array.from(fragment.querySelectorAll("div[data-fragment]"));
             if (!slots.length) return;
 
             await Promise.all(slots.map(async slot => {
-                const slotName = slot.getAttribute("data-slot");
+                const slotName = slot.getAttribute("data-fragment");
                 const fragmentPath = fragments[slotName];
                 if (!fragmentPath) return;
 
@@ -81,8 +83,49 @@ export default function initRouter(routes, options = {}) {
             }));
         }
 
+        function resolveStyles(page) {
+            document.querySelectorAll("link[data-dynamic-style]").forEach(link => link.remove());
+            (page.querySelectorAll('link[rel="stylesheet"][href]') || []).forEach(link => {
+                link.setAttribute("data-dynamic-style", ""); // Mark as dynamically loaded
+                document.head.appendChild(link);
+            });
+
+            document.querySelectorAll("style[data-dynamic-style]").forEach(style => style.remove());
+            (page.querySelectorAll("style") || []).forEach(style => {
+                link.setAttribute("data-dynamic-style", ""); // Mark as dynamically loaded
+                document.head.appendChild(style);
+            });
+        }
+
+        async function resolveScripts(page) {
+            document.querySelectorAll("script[data-dynamic-script]").forEach(script => script.remove());
+
+            (page.querySelectorAll("script:not([src])") || []).forEach(script => {
+                script.setAttribute("data-dynamic-script", "");
+                document.body.appendChild(script);
+            });
+
+            // issue happens because signup-lifecycle.js runs asynchronously
+            // when the script is appended to the DOM, meaning window.spamf.onMount
+            // and window.spamf.onUnmount might not be set when render() tries to execute them.
+            await Promise.all((Array.from(page.querySelectorAll("script[src]")) || []).map(script => new Promise((resolve) => {
+                script.setAttribute("data-dynamic-script", "");
+                script.onload = () => resolve();
+                script.onerror = () => {
+                    console.error(`failed to load script: ${script.src}`);
+                    resolve();
+                };
+                document.body.appendChild(script);
+            })));
+        }
+
         const page = document.createRange().createContextualFragment(html);
+
+        resolveTitle(page);
         await resolveNestedFragments(page);
+        resolveStyles(page);
+        await resolveScripts(page);
+
         return page;
     }
 
@@ -107,8 +150,6 @@ export default function initRouter(routes, options = {}) {
             return;
         }
 
-        document.title = route.title || "Untitled Page";
-
         const response = await fetch(route.template);
         const html = await response.text();
         const page = await resolvePage(html);
@@ -121,30 +162,6 @@ export default function initRouter(routes, options = {}) {
                 anchor.setAttribute("href", `#${href}`);
             }
         });
-
-        document.querySelectorAll("link[data-dynamic-style]").forEach(link => link.remove());
-        (route.styles || []).forEach(css => {
-            const link = document.createElement("link");
-            link.rel = "stylesheet";
-            link.href = css;
-            link.setAttribute("data-dynamic-style", ""); // Mark as dynamically loaded
-            document.head.appendChild(link);
-        });
-
-        document.querySelectorAll("script[data-dynamic-script]").forEach(script => script.remove());
-        await Promise.all((route.scripts || []).map(src => new Promise((resolve) => {
-            const script = document.createElement("script");
-            script.src = src;
-            script.defer = true;
-            if (src.endsWith(".mjs")) script.type = "module";
-            script.setAttribute("data-dynamic-script", "");
-            script.onload = () => resolve();
-            script.onerror = () => {
-                console.error(`failed to load script: ${src}`);
-                resolve();
-            };
-            document.body.appendChild(script);
-        })));
 
         await (window.spamf.onMount || (async () => { }))();
         delete window.spamf.onMount;  // reset the hook
