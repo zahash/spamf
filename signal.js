@@ -6,6 +6,28 @@
  * @returns {function(T=): T} A getter/setter function for the signal.
  *   - Calling the getter/setter function without arguments returns the current value.
  *   - Calling the getter/setter function with a new value updates it and notifies subscribers.
+ *
+ * @example
+ * const count = signal(0);
+ *
+ * console.log(count()); // get current value
+ * > 0
+ *
+ * count.effect(value => { // subscribe to changes
+ *   console.log("Count changed to:", value);
+ * });
+ *
+ * count(1); // Update value
+ * > "Count changed to: 1"
+ *
+ * const doubleCount = count.derive(n => n * 2); // derived signal
+ * doubleCount.effect(n => {
+ *   console.log("Double count:", n);
+ * });
+ *
+ * count(3);
+ * > "Count changed to: 3"
+ * > "Double count: 6"
  */
 export default function signal(initialValue) {
     let value = initialValue;
