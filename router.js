@@ -72,7 +72,9 @@ export default async function initRouter({ routes = {}, fragments = {} }) {
          * @param {DocumentFragment} page
          */
         function resolveTitle(page) {
-            document.title = page.querySelector('meta[data-title]')?.getAttribute('data-title') || "Untitled Page";
+            const metaTitle = page.querySelector('meta[data-title]');
+            document.title = metaTitle?.getAttribute("data-title") || "Untitled Page";
+            metaTitle?.remove();
         }
 
         /**
